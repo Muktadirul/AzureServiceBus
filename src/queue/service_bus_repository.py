@@ -1,16 +1,16 @@
+import logging
 from abc import ABC, abstractmethod
-from asyncio import Queue
-from azure.servicebus.aio import ServiceBusClient
-from typing import Any
+from azure.servicebus.management import ServiceBusAdministrationClient
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
 
 
 class ServiceBusRepository(ABC):
     @abstractmethod
-    def get_queue_sender(self, queue_name: str) -> Queue:
+    def send_list_of_messages(self, msg_chunks:list[str]):
         pass
 
     @abstractmethod
-    def get_queue_receiver(self, queue_name: str) -> Queue:
+    def get_list_of_messages(self):
         pass
 
 
@@ -19,9 +19,19 @@ class ServiceBusQueueRepository(ServiceBusRepository):
         self._queue_name = queue_name
         self._connection = ServiceBusClient.from_connection_string(conn_str=connection_string)
 
-    def get_queue_sender(self, queue_name: str) -> Any:
-        return self._connection.get_queue_sender(queue_name=self._queue_name)
+    def send_list_of_messages(self, msg_chunks:list[str]):
+        with self._connection as client:
+            with client.get_queue_sender(queue_name=self._queue_name) as sender:
+                for chunk in msg_chunks:
+                    message = ServiceBusMessage(chunk)
+                    sender.send_messages(message)
+                logging.info('All messages send successful')
 
-    def get_queue_receiver(self, queue_name: str) -> Any:
-        return self._connection.get_queue_receiver(queue_name=self._queue_name)
-
+    def get_list_of_messages(self):
+        received_chunks = []
+        with self._connection as client:
+            with client.get_queue_receiver(queue_name=self._queue_name, max_wait_time=5) as receiver:
+                for msg in receiver:
+                    logging.info("Received %s ",msg)
+                    receiver.complete_message(msg)
+        return received_chunks
